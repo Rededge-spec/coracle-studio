@@ -59,7 +59,7 @@ studio.onChange((what) => {
   $("chip").classList.toggle("on", on);
   $("chipTxt").textContent = on ? `FM-1 · ${studio.dev.info.version}` : "FM-1 not connected";
   $("connBtn").textContent = on ? "Disconnect" : "Connect";
-  for (const id of ["playBtn", "stopBtn", "bpm", "swing", "refreshBtn", "sendBtn", "echoTime", "echoFb", "revSize"]) $(id).disabled = !on;
+  for (const id of ["playBtn", "stopBtn", "bpm", "swing", "refreshBtn", "sendBtn", "echoTime", "echoFb", "revSize", "saveSong", "openSong"]) $(id).disabled = !on;
   if (what === "connected") soundList = null;
   if (what === "disconnected") { status("The FM-1 was disconnected."); renderTracks(null); }
   if (what === "clip") drawWave();
@@ -280,6 +280,39 @@ $("stopBtn").onclick = () => { heads = null; drawHeads(); act("stop", () => stud
 $("bpm").onchange = () => act("bpm", () => studio.setTempo(+$("bpm").value));
 $("swing").onchange = () => act("swing", () => studio.setSwing(+$("swing").value));
 $("refreshBtn").onclick = () => refresh();
+/* ---- Save song / Open song (songfile.js): the FM-1's song, projects, patterns and user samples in one file ---- */
+const songReq = (r, opt) => studio.need().link.request(r, opt);
+const songPct = (what) => (done, total) => { $("songTxt").textContent = `${what} ${total ? Math.round(done / total * 100) : 100}%`; };
+async function stopFirst() { heads = null; drawHeads(); await studio.transport(2); }
+$("saveSong").onclick = async () => {
+  const def = `FM-1 song ${new Date().toISOString().slice(0, 10)}`;
+  const name = (prompt("Name for the song file", def) || "").trim(); if (!name) return;
+  try {
+    const file = await act("save song", async () => { await stopFirst(); return coracleSong.capture(songReq, studio.dev.info.version || "", name, songPct("Saving…")); });
+    const text = JSON.stringify(file);
+    if (TOKEN) {   /* on the PC: Music\Coracle Songs */
+      const r = await api("/api/save_song", { name, text });
+      $("songTxt").textContent = "Saved."; status(`Song saved: ${r.result.path}`); log(`Song saved: ${r.result.name}`);
+    } else {       /* the tablet (no PC): a download */
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      a.download = name.replace(/[\\/:*?"<>|]/g, "") + ".coracle.json"; document.body.append(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      $("songTxt").textContent = "Saved to Downloads."; status(`Song saved to Downloads: ${a.download}`); log(`Song saved: ${a.download}`);
+    }
+  } catch (e) { $("songTxt").textContent = ""; status("Couldn't save the song: " + e.message, true); }
+};
+$("openSong").onclick = () => $("songIn").click();
+$("songIn").onchange = async () => {
+  const f = $("songIn").files[0]; $("songIn").value = ""; if (!f) return;
+  let song;
+  try { song = coracleSong.readSong(await f.text()); } catch (e) { status(`Couldn't open ${f.name}: ${e.message}`, true); return; }
+  if (!confirm(`Put "${song.name || f.name}" on the FM-1?\n\nThis replaces the FM-1's song, its saved projects, their patterns and its user samples (USR1-3) with the file's. Its settings and sound presets stay.\n\nSave song first if you want to keep what's on it now.`)) return;
+  try {
+    await act("open song", async () => { await stopFirst(); await coracleSong.restore(songReq, song, songPct("Opening…")); });
+    $("songTxt").textContent = "Opened."; status(`Song opened: ${song.name || f.name}`); log(`Song opened: ${song.name || f.name}`);
+    await refresh();
+  } catch (e) { $("songTxt").textContent = ""; status("Couldn't open the song: " + e.message + ". The FM-1 may now hold part of it; open the file again to finish.", true); }
+};
 $("echoTime").onchange = () => act("fx", () => studio.setFx({ echo_time: $("echoTime").value }));
 $("echoFb").onchange = () => act("fx", () => studio.setFx({ echo_feedback: +$("echoFb").value }));
 $("revSize").onchange = () => act("fx", () => studio.setFx({ reverb_size: +$("revSize").value }));
