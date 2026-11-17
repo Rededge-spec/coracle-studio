@@ -1,0 +1,113 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Coracle Studio: the FM-1 running CORACLE firmware, from a PC (Claude can drive it) or a tablet.
+     Protocol code (proto.js) from Skiff's web editor (Leo Kuroshita / Hugelton Instruments and the Skiff authors). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coracle Studio</title>
+<link rel="icon" href="icon.ico">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true">
+      <g fill="none" stroke-width="8" stroke-linecap="round">
+        <path d="M51.7 8 A42 42 0 0 1 85.9 27.7" stroke="var(--t1)"></path><path d="M87.6 30.7 A42 42 0 0 1 87.6 69.3" stroke="var(--t2)"></path>
+        <path d="M85.9 72.3 A42 42 0 0 1 51.7 92" stroke="var(--t3)"></path><path d="M48.3 92 A42 42 0 0 1 14.1 72.3" stroke="var(--t4)"></path>
+        <path d="M12.4 69.3 A42 42 0 0 1 12.4 30.7" stroke="var(--t5)"></path><path d="M14.1 27.7 A42 42 0 0 1 48.3 8" stroke="var(--t6)"></path>
+      </g>
+      <g stroke-width="5" stroke-linecap="round">
+        <line x1="35" y1="21.6" x2="35" y2="78.4" stroke="var(--t1)"></line><line x1="50" y1="18" x2="50" y2="82" stroke="var(--t3)"></line>
+        <line x1="65" y1="21.6" x2="65" y2="78.4" stroke="var(--t5)"></line><line x1="21.6" y1="35" x2="78.4" y2="35" stroke="var(--t2)"></line>
+        <line x1="18" y1="50" x2="82" y2="50" stroke="var(--t4)"></line><line x1="21.6" y1="65" x2="78.4" y2="65" stroke="var(--t6)"></line>
+      </g>
+    </svg>
+    <div><h1>Coracle Studio</h1><div class="strip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+  <div class="conn">
+    <span class="chip" id="chip"><i></i><span id="chipTxt">FM-1 not connected</span></span>
+    <button type="button" id="connBtn">Connect</button>
+  </div>
+</header>
+
+<main>
+  <section class="card song" aria-label="Song">
+    <div class="cardhead"><span class="dot" style="background:var(--t3)"></span><h2>Song</h2></div>
+    <div class="row">
+      <button type="button" class="big go" id="playBtn">Play</button>
+      <button type="button" class="big" id="stopBtn">Stop</button>
+      <label class="num">Tempo <input type="number" id="bpm" min="40" max="240" value="120"> BPM</label>
+      <label class="num">Swing <input type="number" id="swing" min="0" max="100" value="0"> %</label>
+      <button type="button" id="refreshBtn" title="Read the FM-1 again">Refresh</button>
+    </div>
+    <div class="row">
+      <label class="num">Echo time <select id="echoTime"><option>1/4</option><option>1/8</option><option>1/16</option><option>1/32</option><option>8T</option><option>16T</option><option>1/2</option><option>1/1</option><option>2BAR</option><option>4BAR</option><option>1/8D</option><option>1/16D</option><option>1/4D</option></select></label>
+      <label class="num">Echo repeats <input type="number" id="echoFb" min="0" max="100" value="50"> %</label>
+      <label class="num">Reverb size <input type="number" id="revSize" min="0" max="100" value="70"> %</label>
+      <span class="hint">Each track sets how much it sends to these (Echo, Rev).</span>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Tracks">
+    <div class="cardhead"><span class="dot" style="background:var(--t1)"></span><h2>Tracks</h2><span class="hint" id="trkHint">Connect the FM-1 to see its tracks.</span></div>
+    <div id="tracks"></div>
+  </section>
+
+  <section class="card" aria-label="Sampler">
+    <div class="cardhead"><span class="dot" style="background:var(--t5)"></span><h2>Sampler</h2><span class="hint" id="clipName">Nothing loaded</span></div>
+    <div class="row">
+      <button type="button" id="openBtn">Open file</button>
+      <input id="fileIn" type="file" accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus,.webm,.mp4,.mov" hidden>
+      <button type="button" id="micBtn">Record mic</button>
+      <button type="button" id="tabBtn">Capture tab audio</button>
+      <span class="lvl" id="lvl" hidden><i></i></span><span class="num" id="recTime" hidden></span>
+    </div>
+    <canvas id="wave" aria-label="Waveform: drag to choose the passage, drag its edges to adjust"></canvas>
+    <div class="row zoomrow">
+      <button type="button" id="zIn" title="Zoom in (or scroll the wheel on the waveform)">Zoom +</button>
+      <button type="button" id="zOut" title="Zoom out">Zoom −</button>
+      <button type="button" id="zSel" title="Fill the view with the chosen passage">Zoom to selection</button>
+      <button type="button" id="zAll" title="Show the whole sound">Whole sound</button>
+      <input type="range" id="zPan" min="0" max="1000" value="0" aria-label="Scroll along the sound" hidden>
+      <span class="hint" id="zTxt"></span>
+    </div>
+    <div class="row between small"><span id="selTxt">Drag on the waveform to choose a passage</span><span id="fitTxt"></span></div>
+    <div class="meter" id="fit"><i></i></div>
+    <div class="row">
+      <button type="button" id="playSmp" title="Play the whole sound (from what's in view when zoomed in). Space starts and stops it.">Play</button>
+      <button type="button" id="previewBtn" title="Play only the chosen passage, as the FM-1 will get it">Preview</button>
+      <label><input type="checkbox" id="loopSmp"> Loop</label>
+      <label><input type="checkbox" id="rev"> Reverse</label>
+      <label>Quality <select id="quality"><option value="high">High · 7 s</option><option value="long">Long · 14 s</option><option value="longest">Longest · 20 s</option></select></label>
+      <label>Name <input type="text" id="smpName" maxlength="8" value="SAMPLE" spellcheck="false"></label>
+    </div>
+    <div class="row">
+      <label>Slot <select id="slot"><option value="1">USR1</option><option value="2">USR2</option><option value="3">USR3</option></select></label>
+      <button type="button" class="go" id="sendBtn">Send to FM-1</button>
+      <label>then play it on <select id="useTrk"><option value="">no track</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+      <button type="button" id="saveBtn" title="Keep the chosen passage in My samples">Save to My samples</button>
+    </div>
+    <div class="meter" id="prog"><i></i></div>
+  </section>
+
+  <section class="card" aria-label="My samples">
+    <div class="cardhead"><span class="dot" style="background:var(--t6)"></span><h2>My samples</h2><span class="hint" id="libCount"></span></div>
+    <p class="hint">Every sample sent to the FM-1 or saved. ▶ listens, Load puts it in the sampler to trim or send again.</p>
+    <div id="libList"></div>
+    <div class="row"><button type="button" id="libOpen">Open the folder</button><button type="button" id="libRefresh">Refresh</button></div>
+  </section>
+
+  <p class="status" id="status" role="status"></p>
+  <ol class="log" id="log" aria-label="What's been done"></ol>
+</main>
+<footer>Coracle Studio · GPL-3.0 · protocol from Skiff's editor (Leo Kuroshita, Hügelton Instruments, and the Skiff authors). M-VAVE and FM-1 are trademarks of their owners.</footer>
+<div class="drop" id="drop" hidden>Drop to load</div>
+<script>window.STUDIO_TOKEN = "__TOKEN__";</script>
+<script src="proto.js"></script>
+<script src="studio.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

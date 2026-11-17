@@ -1,0 +1,473 @@
+{
+ "commands": [
+  {
+   "name": "get_state",
+   "description": "Read the FM-1: connection, tempo, swing, playing, the six tracks (sound, engine, volume, mute, loop length in steps, speed, echo and reverb sends, and their steps: melodic tracks as text like \"C2 . C2 - D#2 .\", drum tracks as [lane, \"x...x...\"] rows) and the three user sample slots USR1-3, and the echo / reverb settings (fx). Call this first and after the person has been playing with it by hand.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "steps": {
+      "type": "boolean",
+      "description": "Include each track's steps (default true)."
+     }
+    }
+   }
+  },
+  {
+   "name": "connect",
+   "description": "Connect to the FM-1 over USB if it isn't connected yet (the page normally does this itself).",
+   "input_schema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "list_sounds",
+   "description": "The FM-1's sound engines and the sounds (presets) each has, by name. DRUM and DRUM-X sounds are drum kits; SAMPLE plays samples, including the user slots USR1-3.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "engine": {
+      "type": "string",
+      "description": "Only this engine, e.g. DRUM, ANALOG, FM6, SAMPLE."
+     }
+    }
+   }
+  },
+  {
+   "name": "set_sound",
+   "description": "Give a track a sound by its name (as list_sounds shows; a part of a name is enough). For drums pick a kit from DRUM or DRUM-X. Tracks 5 and 6 can't play GRAIN or PHYS.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     },
+     "sound": {
+      "type": "string"
+     },
+     "engine": {
+      "type": "string",
+      "description": "Optional: only look in this engine."
+     }
+    },
+    "required": [
+     "track",
+     "sound"
+    ]
+   }
+  },
+  {
+   "name": "set_steps",
+   "description": "Write a melodic track's pattern. One token per step (16th notes at speed x1), separated by spaces: a note like C3, F#2, Bb4; a chord joined with + (C3+E3+G3); \".\" for nothing; \"-\" to hold the note before it; \">\" in front accents (\">C3\"). The number of tokens becomes the loop length (1-64). Middle C is C4. Bass lines sit around C1-C3.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     },
+     "steps": {
+      "type": "string",
+      "description": "e.g. \"C2 . . C2 . . Eb2 . F2 . . . G1 . Bb1 .\""
+     }
+    },
+    "required": [
+     "track",
+     "steps"
+    ]
+   }
+  },
+  {
+   "name": "set_drums",
+   "description": "Write a drum track's pattern by lane. Each lane is a string of steps: x a hit, X an accented hit, . nothing. Lanes: kick, snare, clap, hat (closed), openhat, tom, rim, bell. The longest lane sets the loop length (1-64). The track should have a DRUM or DRUM-X kit (set_sound).",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     },
+     "lanes": {
+      "type": "object",
+      "description": "e.g. {\"kick\": \"x.....x...x.....\", \"snare\": \"....X.......X...\", \"hat\": \"x.x.x.x.x.x.x.x.\"}",
+      "additionalProperties": {
+       "type": "string"
+      }
+     }
+    },
+    "required": [
+     "track",
+     "lanes"
+    ]
+   }
+  },
+  {
+   "name": "set_track",
+   "description": "Change a track's loop length (steps), speed (x0.25-x4 against the song tempo; x1 normal, x2 double, x0.5 half: other values drift against the other tracks), volume (0-127), mute, its own swing (0-100), and how much it sends to the echo and the reverb (0-100 %).",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     },
+     "loop": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 64
+     },
+     "speed": {
+      "type": "number",
+      "minimum": 0.25,
+      "maximum": 4
+     },
+     "volume": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 127
+     },
+     "muted": {
+      "type": "boolean"
+     },
+     "swing": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+     },
+     "echo": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Send to the echo, %"
+     },
+     "reverb": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Send to the reverb, %"
+     }
+    },
+    "required": [
+     "track"
+    ]
+   }
+  },
+  {
+   "name": "set_kit",
+   "description": "A drum track's parts one by one: level (0-100 %) and pitch (tune, semitones -12..+12, in 3/16 steps) of kick, snare, clap, hat, openhat, tom, rim, bell. get_state shows each drum track's kit. Level 0 silences a part without touching its steps.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     },
+     "parts": {
+      "type": "object",
+      "description": "e.g. {\"hat\": {\"level\": 80, \"tune\": 2}, \"snare\": {\"level\": 0}}"
+     }
+    },
+    "required": [
+     "track",
+     "parts"
+    ]
+   }
+  },
+  {
+   "name": "clear_track",
+   "description": "Remove every note or hit from a track (its sound stays). The person can undo on the FM-1 by holding SAVE.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     }
+    },
+    "required": [
+     "track"
+    ]
+   }
+  },
+  {
+   "name": "set_tempo",
+   "description": "The song tempo in BPM (40-240).",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "bpm": {
+      "type": "number",
+      "minimum": 40,
+      "maximum": 240
+     }
+    },
+    "required": [
+     "bpm"
+    ]
+   }
+  },
+  {
+   "name": "set_swing",
+   "description": "Swing for every track, 0-100 % (about 50-66 gives a shuffle feel).",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+     }
+    },
+    "required": [
+     "percent"
+    ]
+   }
+  },
+  {
+   "name": "set_fx",
+   "description": "The echo and reverb every track sends to (set_track echo / reverb sets how much each sends). echo_time is a note value: 1/4, 1/8, 1/16, 1/32, 8T, 16T, 1/2, 1/1, 2BAR, 4BAR, 1/8D, 1/16D, 1/4D (D dotted, T triplet). echo_feedback 0-100 %: how long the repeats go on (high = a long slow tail). reverb_size 0-100 %.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "echo_time": {
+      "type": "string"
+     },
+     "echo_feedback": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+     },
+     "reverb_size": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+     }
+    }
+   }
+  },
+  {
+   "name": "play",
+   "description": "Start the FM-1 playing.",
+   "input_schema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "stop",
+   "description": "Stop the FM-1.",
+   "input_schema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "set_song",
+   "description": "Give a track a list of parts the FM-1 plays in turn in song mode (up to 16), each repeated 1-16 times; the list goes round and round. pattern: \"A\" is what the track plays now, \"rest\" is silence, any other name is a variant given in variants: {from: \"A\", transpose: semitones} (a copy moved up or down), {steps: \"...\"} (as set_steps) or {lanes: {...}} (as set_drums); any variant can add kit: {hat: {tune: 2}} to pitch a drum part (semitones) for that part, A keeping the pitch it has now. Each track's list is its own, so lists of different lengths drift against each other. Stops the FM-1 and turns song mode on. Example: parts [{pattern:\"A\",reps:2},{pattern:\"B\",reps:1}], variants {B:{from:\"A\",transpose:2}}.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     },
+     "parts": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "pattern": {
+         "type": "string"
+        },
+        "reps": {
+         "type": "integer",
+         "minimum": 1,
+         "maximum": 16
+        }
+       },
+       "required": [
+        "pattern"
+       ]
+      }
+     },
+     "variants": {
+      "type": "object"
+     }
+    },
+    "required": [
+     "track",
+     "parts"
+    ]
+   }
+  },
+  {
+   "name": "song_mode",
+   "description": "Song mode: on (each track walks its list of parts round and round), once (through once, then stop), off (each track loops the part it's on).",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "mode": {
+      "type": "string",
+      "enum": [
+       "on",
+       "off",
+       "once"
+      ]
+     }
+    },
+    "required": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "name": "get_song",
+   "description": "Song mode and each track's list of parts.",
+   "input_schema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "find_media",
+   "description": "List the sound and video files in a folder on the PC (with their sizes), to choose one for load_audio. With no folder: the person's Music folder.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "folder": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "name": "load_audio",
+   "description": "Load a sound or video file from the PC into the sampler (it replaces what's loaded). Returns its length and a loudness profile, one figure per half second (0 silent - 9 loud), to help choose a passage.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Full path on the PC."
+     }
+    },
+    "required": [
+     "path"
+    ]
+   }
+  },
+  {
+   "name": "audio_info",
+   "description": "The loaded sound's length, the current selection and the loudness profile (one figure per half second, 0-9).",
+   "input_schema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "trim_audio",
+   "description": "Select the passage to sample, in seconds from the start of the loaded sound. A user slot holds about 7.4 s at high quality, 14.8 s at long, 20 s at longest.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "start": {
+      "type": "number",
+      "minimum": 0
+     },
+     "end": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "start",
+     "end"
+    ]
+   }
+  },
+  {
+   "name": "send_sample",
+   "description": "Send the selected passage to a user sample slot on the FM-1 (USR1-3), normalised with tiny fades. quality: high (22 kHz, up to ~7.4 s), long (11 kHz, ~14.8 s, duller), longest (8 kHz, ~20 s, telephone-like). Replaces what the slot held. Takes up to half a minute.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "slot": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+     },
+     "name": {
+      "type": "string",
+      "description": "Up to 8 letters."
+     },
+     "quality": {
+      "type": "string",
+      "enum": [
+       "high",
+       "long",
+       "longest"
+      ]
+     },
+     "reverse": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "slot"
+    ]
+   }
+  },
+  {
+   "name": "save_sample",
+   "description": "Keep the selected passage in My samples (Music\\Coracle Samples) without sending it to the FM-1. send_sample keeps a copy there too.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "name": "list_samples",
+   "description": "The samples in My samples (everything sent to the FM-1 or saved), newest first, with their paths for load_audio.",
+   "input_schema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "use_sample",
+   "description": "Make a track play a user sample slot (it becomes a SAMPLE track). Notes on it play the sample: C4 at its own pitch, higher notes faster and higher. For a long passage write one note held with \"-\" for its length.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "track": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6
+     },
+     "slot": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+     }
+    },
+    "required": [
+     "track",
+     "slot"
+    ]
+   }
+  }
+ ]
+}
