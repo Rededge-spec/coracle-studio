@@ -341,25 +341,25 @@ function renderTracks(st) {
         const r = cellRow(t, n, (i) => drumCell(steps[i], l), (i, next) => editCell(t, i, next, l), lab);
         if (t.kit) { r.querySelector(":scope > .lanelab")?.remove(); r.prepend(kitCtl(t, l, lab)); r.classList.add("haskit"); }
         if (!show[l]) r.classList.add("spare");
-        else {   /* ✕ beside the name hides this drum from view (its notes stay and still play) */
-          const x = mk("button", "lhide", "✕"); x.type = "button"; x.title = `Hide ${lab} from view (it still plays)`;
-          x.onclick = () => setHid([...hid, l]);
-          const lb = r.querySelector(".lanelab"); if (lb) lb.append(x);
-        }
         grid.append(r);
       });
+      /* one row of switches above the drums: lit = shown, pale = hidden (still plays); a dot = it has notes in this part */
       const kbar = mk("div", "kitbar");
-      if (hid.length) {   /* the hidden drums, to bring back one at a time; • marks one that has notes */
-        kbar.append(mk("span", "hint", "Show:"));
-        for (const l of hid) {
-          const b = mk("button", "more", "+ " + LANE_LABEL[l] + (used[l] ? " •" : "")); b.type = "button";
-          b.title = used[l] ? `${LANE_LABEL[l]} has notes in this part` : `${LANE_LABEL[l]} is empty in this part`;
-          b.onclick = () => setHid(hid.filter((q) => q !== l));
-          kbar.append(b);
-        }
-        if (hid.length > 1) { const all = mk("button", "more", "All"); all.type = "button"; all.onclick = () => setHid([]); kbar.append(all); }
-      }
-      if (kbar.children.length) grid.append(kbar);
+      kbar.append(mk("span", "hint", "Show"));
+      LANE_LABEL.forEach((lab, l) => {
+        const on = show[l], b = mk("button", "dchip" + (on ? " on" : ""), lab); b.type = "button";
+        if (on) b.style.setProperty("--dc", `var(--t${t.track})`);
+        if (used[l]) b.append(mk("i", "ddot"));
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+        b.title = `${lab}: ${on ? "shown — click to hide it from view" : "hidden — click to show it"}${used[l] ? " (it has notes in this part)" : " (empty in this part)"}`;
+        b.onclick = () => setHid(on ? [...hid, l] : hid.filter((q) => q !== l));
+        kbar.append(b);
+      });
+      const all = mk("button", "dchip dall", hid.length ? "All" : "Used"); all.type = "button";
+      all.title = hid.length ? "Show all eight" : "Show only the drums with notes in this part";
+      all.onclick = () => setHid(hid.length ? [] : LANE_LABEL.map((_, l) => l).filter((l) => !used[l]));
+      kbar.append(all);
+      grid.prepend(kbar);
     } else {
       grid.append(cellRow(t, n, (i) => melodicCell(steps, i), (i, next) => editCell(t, i, next, null)));
     }
