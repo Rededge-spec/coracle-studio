@@ -184,3 +184,12 @@ label.num { font: 14px "Segoe UI", system-ui, sans-serif; color: var(--mid); }
 #partBar { flex-wrap: wrap; }
 #partBar .num { min-width: 24px; text-align: center; }
 .trk.flash { background: #fff6c8; transition: background .3s; }
+
+/* a track's song parts as tabs, and its ▶ */
+.ptabs { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; margin-top: 4px; }
+.ptabs .plabel { font-size: 12px; color: var(--mid); margin-right: 2px; }
+.ptab { padding: 1px 0; min-width: 24px; font-size: 12px; line-height: 18px; }
+.ptab.on { font-weight: 600; border-color: #15161a; }
+.ptab.rest { color: var(--mid); background: repeating-linear-gradient(135deg, #f7f6f2 0 4px, #ecebe6 4px 8px); }
+.ptab.plus { color: var(--mid); }
+.tctl button.tplay.on { background: #4fc36b; border-color: #4fc36b; color: #0d1a10; }

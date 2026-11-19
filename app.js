@@ -157,6 +157,7 @@ function renderParts() {
     box.append(row);
   }
   renderPartBar();
+  renderPartTabs();
 }
 function renderPartBar() {
   const bar = $("partBar"), v = partsView, t = v && partSel && v.tracks[partSel.k], x = t && t.ents.find((q) => q.e === partSel.e);
@@ -184,6 +185,8 @@ $("partNotes").onclick = () => {
     .then((m) => { partNotes = m; $("partsHint").textContent = "Each track plays its parts left to right, then starts again. Click a part to open its notes in Tracks below."; renderParts(); return refresh(); })
     .catch(() => {});
 };
+/* a fresh read even if one is already under way (that one may be from before the change just made) */
+const refreshNow = () => (refreshing ? refreshing.then(() => refresh(), () => refresh()) : refresh());
 function render(st) {
   if (!st) return;
   if (document.activeElement !== $("bpm")) $("bpm").value = st.bpm;
@@ -285,7 +288,7 @@ async function setSolo(track) {
 function renderTracks(st) {
   const box = $("tracks");
   box.textContent = "";
-  $("trkHint").textContent = st ? "Click a step: off, on, held (drums: off, hit, accent). M mutes a track, S plays it alone." : "Connect the FM-1 to see its tracks.";
+  $("trkHint").textContent = st ? "Click a step: off, on, held (drums: off, hit, accent). M mutes a track, ▶ plays it on its own. Part 1, 2, 3 … are its song parts; + adds one. Space plays and stops." : "Connect the FM-1 to see its tracks.";
   if (!st) return;
   for (const t of st.tracks) {
     const c = `var(--t${t.track})`, row = document.createElement("div"), steps = studio.raw[t.track - 1] || [];
@@ -293,8 +296,8 @@ function renderTracks(st) {
     row.innerHTML = `<div class="tnum" style="background:${c}">${t.track}</div>
       <div class="tsound"><select class="snd" aria-label="Track ${t.track} sound"></select>
         <div class="tnums"><label>Loop <input type="number" class="loop" min="1" max="64"></label><label>Speed x<input type="number" class="speed" min="0.25" max="4" step="0.01"></label></div>
-        <div class="tnums"><label>Echo <input type="range" class="echo" min="0" max="100"></label><label>Rev <input type="range" class="rev" min="0" max="100"></label></div></div><div class="grid"></div>
-      <div class="tctl"><input type="range" class="vol" min="0" max="127" aria-label="Track ${t.track} volume"><button type="button" class="mute">M</button><button type="button" class="solo">S</button><button type="button" class="clr">Clear</button></div>`;
+        <div class="tnums"><label>Echo <input type="range" class="echo" min="0" max="100"></label><label>Rev <input type="range" class="rev" min="0" max="100"></label></div><div class="ptabs" aria-label="Track ${t.track} song parts"></div></div><div class="grid"></div>
+      <div class="tctl"><input type="range" class="vol" min="0" max="127" aria-label="Track ${t.track} volume"><button type="button" class="mute">M</button><button type="button" class="solo tplay">▶</button><button type="button" class="clr">Clear</button></div>`;
     fillSounds(row.querySelector(".snd"), t);
     const lp = row.querySelector(".loop"), sp = row.querySelector(".speed"), ec = row.querySelector(".echo"), rv = row.querySelector(".rev");
     lp.value = t.loop; sp.value = t.speed.toFixed(2); ec.value = t.echo ?? 0; rv.value = t.reverb ?? 0;
@@ -327,13 +330,56 @@ function renderTracks(st) {
     const m = row.querySelector(".mute"), s = row.querySelector(".solo");
     m.classList.toggle("on", t.muted); m.title = t.muted ? "Muted: press to hear it" : "Mute";
     m.onclick = () => act("mute", () => studio.setTrack(t.track, { muted: !t.muted })).then(refresh);
-    s.classList.toggle("on", !!solo && solo.track === t.track); s.title = "Play this track alone";
-    s.onclick = () => act("solo", () => setSolo(t.track)).then(refresh);
+    { const me = !!solo && solo.track === t.track && !!wasPlaying; s.classList.toggle("on", me); s.textContent = me ? "■" : "▶";
+      s.title = me ? "Stop, and hear every track again" : "Play this track on its own"; }
+    s.onclick = () => act("track play", () => trackPlay(t.track)).then(refreshNow).catch(() => {});
     row.querySelector(".clr").onclick = () => { if (confirm(`Clear track ${t.track}'s notes? (Hold SAVE on the FM-1 to undo.)`)) act("clear", () => studio.clearTrack(t.track)).then(refresh); };
     row.dataset.track = t.track;
     box.append(row);
   }
   drawHeads();
+  renderPartTabs();
+}
+/* ▶ on a track: it plays on its own (the others muted for now); ▶ again (■), Stop or Space stops and brings them back */
+async function trackPlay(track) {
+  const on = !!solo && solo.track === track;
+  if (on && wasPlaying) { await studio.transport(2); wasPlaying = false; await setSolo(track); return `Stopped; every track back`; }
+  if (!on) await setSolo(track);
+  await studio.transport(1); wasPlaying = true;
+  return `Track ${track} playing on its own (■ or Space stops)`;
+}
+async function stopAll() {
+  heads = null; drawHeads();
+  await studio.transport(2); wasPlaying = false;
+  if (solo) await setSolo(solo.track);   /* a track playing on its own: the others back */
+  return "Stopped";
+}
+/* each track's song parts as tabs 1, 2, 3 …: click one to open it in the grid; + makes a new part (a copy to change) */
+function renderPartTabs() {
+  for (const row of $("tracks").children) {
+    const box = row.querySelector(".ptabs"); if (!box) continue;
+    const k = +row.dataset.track - 1, t = partsView && partsView.tracks[k];
+    box.textContent = "";
+    if (!t) continue;
+    box.append(mk("span", "plabel", "Part"));
+    for (const x of t.ents) {
+      const b = mk("button", "ptab" + (t.cur === x.e ? " on" : "") + (x.rest ? " rest" : ""), String(x.e + 1));
+      b.type = "button";
+      b.title = x.rest ? `Part ${x.e + 1}: rest x${x.reps}` : `Part ${x.e + 1}: pattern ${x.pat}, plays ${x.reps}x. Click to open it here.`;
+      if (t.cur === x.e && !x.rest) b.style.background = `var(--t${k + 1})`;
+      b.onclick = () => { if (x.rest || t.cur === x.e) return; partSel = { k, e: x.e }; act("part", () => studio.songGo(k, x.e)).then(() => { heads = null; return refresh(); }).catch(() => {}); };
+      box.append(b);
+    }
+    const plus = mk("button", "ptab plus", "+"); plus.type = "button";
+    plus.title = t.ents.length ? "A new part: a copy of this one, to change" : "Make what it plays part 1, then add part 2 to change";
+    plus.onclick = () => partAct(async () => {
+      const n = t.ents.length, m = await studio.songAdd(k, t.cur >= 0 ? t.cur : -1);
+      const v = await studio.songView(), now = v.tracks[k].ents.length;
+      if (now > n) { await studio.songGo(k, now - 1); partSel = { k, e: now - 1 }; }
+      return m;
+    });
+    box.append(plus);
+  }
 }
 /* the sound picker: every engine's sounds, grouped */
 let soundList = null;
@@ -382,7 +428,7 @@ setInterval(async () => {
   headBusy = false;
 }, 150);
 $("playBtn").onclick = () => act("play", () => studio.transport(1)).then(refresh);
-$("stopBtn").onclick = () => { heads = null; drawHeads(); act("stop", () => studio.transport(2)).then(refresh); };
+$("stopBtn").onclick = () => act("stop", stopAll).then(refreshNow).catch(() => {});
 $("bpm").onchange = () => act("bpm", () => studio.setTempo(+$("bpm").value));
 $("swing").onchange = () => act("swing", () => studio.setSwing(+$("swing").value));
 $("refreshBtn").onclick = () => refresh();
@@ -721,9 +767,11 @@ addEventListener("keydown", (e) => {
   if (e.code !== "Space" || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
   const el = e.target, tag = el && el.tagName;
   if (tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && !/^(checkbox|range|radio|button)$/.test(el.type)) || el.isContentEditable) return;
-  if (!studio.clip) return;
   e.preventDefault();
-  $("playSmp").click();
+  if (studio.dev) {   /* the FM-1: play / stop */
+    if (wasPlaying) act("stop", stopAll).then(refreshNow).catch(() => {});
+    else act("play", () => studio.transport(1)).then(() => { wasPlaying = true; return refreshNow(); }).catch(() => {});
+  } else if (studio.clip) $("playSmp").click();   /* no FM-1: the sampler's sound */
 });
 async function sendSample(slot, opt) {
   $("prog").firstChild.style.width = "0";
