@@ -288,8 +288,8 @@ async function setSolo(track) {
 }
 /* what's folded away (tracks, cards) and which drum tracks show all eight lanes: kept between visits */
 const ui = (() => { try { return JSON.parse(localStorage.getItem("coracle.ui") || "{}"); } catch (e) { return {}; } })();
-ui.folded = new Set(ui.folded || []); ui.cards = new Set(ui.cards || []); ui.allDrums = new Set(ui.allDrums || []); ui.kitShut = new Set(ui.kitShut || []);
-const keepUi = () => { try { localStorage.setItem("coracle.ui", JSON.stringify({ folded: [...ui.folded], cards: [...ui.cards], allDrums: [...ui.allDrums], kitShut: [...ui.kitShut] })); } catch (e) { /* private mode */ } };
+ui.folded = new Set(ui.folded || []); ui.cards = new Set(ui.cards || []); ui.allDrums = new Set(ui.allDrums || []); ui.lanes = ui.lanes || {};   /* lanes: track -> the drum lanes hidden (chosen) */
+const keepUi = () => { try { localStorage.setItem("coracle.ui", JSON.stringify({ folded: [...ui.folded], cards: [...ui.cards], allDrums: [...ui.allDrums], lanes: ui.lanes })); } catch (e) { /* private mode */ } };
 function toggleSet(set, v) { set.has(v) ? set.delete(v) : set.add(v); keepUi(); }
 /* every card folds by clicking its title */
 $("foldAll").onclick = () => { for (let k = 1; k <= 6; k++) ui.folded.add(k); keepUi(); renderTracks(lastState); };
@@ -333,25 +333,31 @@ function renderTracks(st) {
     { const mini = mk("canvas", "tmini"); mini.title = "Track " + t.track + ": click its number to unfold"; mini.onclick = () => { toggleSet(ui.folded, t.track); renderTracks(lastState); };
       grid.before(mini); if (ui.folded.has(t.track)) requestAnimationFrame(() => drawPart(mini, steps.slice(0, n), t.drum, getComputedStyle(document.body).getPropertyValue(`--t${t.track}`) || "#888", 1)); }
     if (t.drum) {
-      const used = LANE_LABEL.map((_, l) => steps.some((s) => drumCell(s, l).cls)), show = LANE_LABEL.map((_, l) => used[l] || l < 4 || ui.allDrums.has(t.track));
+      const used = LANE_LABEL.map((_, l) => steps.some((s) => drumCell(s, l).cls));
+      /* which drums show: as chosen (✕ hides one, the buttons below bring them back); never chosen: the ones it uses, and the first four */
+      const hid = ui.lanes[t.track] || LANE_LABEL.map((_, l) => l).filter((l) => !used[l] && l >= 4), show = LANE_LABEL.map((_, l) => !hid.includes(l));
+      const setHid = (h) => { ui.lanes[t.track] = h; keepUi(); renderTracks(lastState); };
       LANE_LABEL.forEach((lab, l) => {
         const r = cellRow(t, n, (i) => drumCell(steps[i], l), (i, next) => editCell(t, i, next, l), lab);
-        if (t.kit && !ui.kitShut.has(t.track)) { r.querySelector(":scope > .lanelab")?.remove(); r.prepend(kitCtl(t, l, lab)); r.classList.add("haskit"); }
+        if (t.kit) { r.querySelector(":scope > .lanelab")?.remove(); r.prepend(kitCtl(t, l, lab)); r.classList.add("haskit"); }
         if (!show[l]) r.classList.add("spare");
+        else {   /* ✕ beside the name hides this drum from view (its notes stay and still play) */
+          const x = mk("button", "lhide", "✕"); x.type = "button"; x.title = `Hide ${lab} from view (it still plays)`;
+          x.onclick = () => setHid([...hid, l]);
+          const lb = r.querySelector(".lanelab"); if (lb) lb.append(x);
+        }
         grid.append(r);
       });
       const kbar = mk("div", "kitbar");
-      if (show.some((x) => !x) || ui.allDrums.has(t.track)) {   /* (stays as chosen when the tracks are drawn again) */
-        const more = mk("button", "more", ui.allDrums.has(t.track) ? "Fewer drums" : "More drums"); more.type = "button";
-        more.title = ui.allDrums.has(t.track) ? "Hide the drums this pattern doesn't use" : "Show all eight drums";
-        more.onclick = () => { toggleSet(ui.allDrums, t.track); renderTracks(lastState); };
-        kbar.append(more);
-      }
-      if (t.kit) {   /* each drum's level, solo and pitch: fold them away to leave just the steps */
-        const kb = mk("button", "more", ui.kitShut.has(t.track) ? "Show drum levels" : "Hide drum levels"); kb.type = "button";
-        kb.title = "Each drum's level slider, S and pitch";
-        kb.onclick = () => { toggleSet(ui.kitShut, t.track); renderTracks(lastState); };
-        kbar.append(kb);
+      if (hid.length) {   /* the hidden drums, to bring back one at a time; • marks one that has notes */
+        kbar.append(mk("span", "hint", "Show:"));
+        for (const l of hid) {
+          const b = mk("button", "more", "+ " + LANE_LABEL[l] + (used[l] ? " •" : "")); b.type = "button";
+          b.title = used[l] ? `${LANE_LABEL[l]} has notes in this part` : `${LANE_LABEL[l]} is empty in this part`;
+          b.onclick = () => setHid(hid.filter((q) => q !== l));
+          kbar.append(b);
+        }
+        if (hid.length > 1) { const all = mk("button", "more", "All"); all.type = "button"; all.onclick = () => setHid([]); kbar.append(all); }
       }
       if (kbar.children.length) grid.append(kbar);
     } else {
