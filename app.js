@@ -768,11 +768,17 @@ addEventListener("keydown", (e) => {
   const el = e.target, tag = el && el.tagName;
   if (tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && !/^(checkbox|range|radio|button)$/.test(el.type)) || el.isContentEditable) return;
   e.preventDefault();
-  if (studio.dev) {   /* the FM-1: play / stop */
-    if (wasPlaying) act("stop", stopAll).then(refreshNow).catch(() => {});
-    else act("play", () => studio.transport(1)).then(() => { wasPlaying = true; return refreshNow(); }).catch(() => {});
+  if (tag === "BUTTON") el.blur();   /* so the key doesn't also press the button that has the focus */
+  if (studio.dev) {   /* the FM-1: play / stop, by what it's doing now (asked, not guessed) */
+    const hadSolo = !!solo;
+    act("space", async () => {
+      const r = await studio.playheads();
+      if (r.playing) { await stopAll(); $("playBtn").classList.add("go"); return "Stopped"; }
+      await studio.transport(1); wasPlaying = true; $("playBtn").classList.remove("go"); return "Playing";
+    }).then(() => (hadSolo ? refreshNow() : null)).catch(() => {});   /* (a full read only when a track's ▶ was undone) */
   } else if (studio.clip) $("playSmp").click();   /* no FM-1: the sampler's sound */
 });
+addEventListener("keyup", (e) => { if (e.code === "Space" && e.target && e.target.tagName === "BUTTON") e.preventDefault(); });
 async function sendSample(slot, opt) {
   $("prog").firstChild.style.width = "0";
   const msg = await studio.sendSample(slot, { ...opt, progress: (p) => { $("prog").firstChild.style.width = p * 100 + "%"; } });
