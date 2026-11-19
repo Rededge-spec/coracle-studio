@@ -193,3 +193,9 @@ label.num { font: 14px "Segoe UI", system-ui, sans-serif; color: var(--mid); }
 .ptab.rest { color: var(--mid); background: repeating-linear-gradient(135deg, #f7f6f2 0 4px, #ecebe6 4px 8px); }
 .ptab.plus { color: var(--mid); }
 .tctl button.tplay.on { background: #4fc36b; border-color: #4fc36b; color: #0d1a10; }
+
+/* a user sample slot: on a SAMPLE track, and in the Sampler's row */
+.uslot { padding: 2px 8px; font-size: 12px; margin-top: 3px; background: #fff; }
+.tsound .uslot { align-self: flex-start; }
+.uslot.empty { color: var(--mid); }
+.resthint { margin: 0 0 4px; }

@@ -162,13 +162,21 @@ class Studio {
         loop, speed: +(2 ** (speedV / 24)).toFixed(2), echo: pct(echo), reverb: pct(reverb) };
       if (opt.steps !== false) { this.raw[k] = await this.trackSteps(k, loop); row.steps = stepsText(this.raw[k], row.drum); }
       if (row.drum && opt.kit !== false) { try { row.kit = await this.kitOf(k); } catch (e) { /* firmware without lane pitch */ } }
+      if (row.engine === "SAMPLE") {   /* which sample set it plays: the preset's name (PIANO) doesn't say when it's USR1..3 */
+        try {
+          if (!this._setNames) { await this.select(k); this._setNames = (await this.rq(req.desc(0, info.pe0))).names || []; this._reselect = true; }
+          const set = this._setNames[(await this.rq(req.trackParam(k, info.pe0))).value];
+          if (set) { row.sample_set = set; const m = /^USR(\d)$/.exec(set); if (m) row.user_slot = +m[1]; }
+        } catch (e) { /* firmware that doesn't say */ }
+      }
       tracks.push(row);
     }
+    if (this._reselect) { this._reselect = false; try { await this.select(tr.sel); } catch (e) { /* as it was */ } }
     const si = await this.rq(req.smpInfo());
     const fx = { echo_time: ECHO_TIMES[(await this.rq(req.get(1, G_ID.DTIME))).value] || "?",
       echo_feedback: pct((await this.rq(req.get(1, G_ID.DFDBK))).value, 120), reverb_size: pct((await this.rq(req.get(1, G_ID.RSIZE))).value) };
     return { connected: true, firmware: info.version, bpm, swing, playing, selected: tr.sel + 1, fx, tracks,
-      sample_slots: si.slots.map((s, i) => ({ slot: i + 1, name: s.name || null, empty: !s.zones })) };
+      sample_slots: si.slots.map((s, i) => ({ slot: i + 1, name: s.name || null, empty: !s.zones, kib: s.kib, of_kib: si.slotKiB })) };
   }
   async listSounds(engine) {
     const info = this.need().info, out = [];

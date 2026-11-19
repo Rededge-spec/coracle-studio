@@ -141,5 +141,42 @@
     }
     return song;
   }
-  window.coracleSong = { capture, restore, readSong };
+  /* one object's bytes (e.g. 32..34: a user sample slot, its 512-byte header and IMA ADPCM data) */
+  async function readObject(request, id, onProgress = () => {}) {
+    const o = bkManifest(await request([BK.LIST, []], { timeout: 3000, retries: 0 })).find((x) => x.id === id);
+    if (!o) throw new Error("The FM-1 doesn't list that part");
+    const bytes = new Uint8Array(o.size);
+    for (let off = 0; off < o.size; off += CHUNK) {
+      const size = Math.min(CHUNK, o.size - off);
+      const a = await request([BK.GET, [o.id, ...bkU32(off), size & 127, size >>> 7]], { timeout: 1000, retries: 1 });
+      bkCheck(a[1]);
+      if (a[0] !== o.id || bkR32(a, 2) !== off || (a[7] | a[8] << 7) !== size) throw new Error("Unexpected reply from the FM-1");
+      bytes.set(bkUnpack(a.slice(9), size), off);
+      onProgress(off + size, o.size);
+    }
+    if (bkCrc(bytes) !== o.crc) throw new Error("The FM-1 changed while reading. Stop it and try again.");
+    return bytes;
+  }
+  /* a user slot's bytes -> its sounds as {sr, x: Float32Array} (IMA ADPCM, low nibble first, each sound from 0, 0) */
+  function decodeSlot(bytes) {
+    if (bytes.length < 512) throw new Error("That slot is empty");
+    const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), count = bytes[6], out = [];
+    const name = String.fromCharCode(...bytes.subarray(8, 16)).replace(/\0.*$/, "").trim();
+    for (let z = 0; z < count; z++) {
+      const b = 32 + z * 28, off = v.getUint32(b, true), n = v.getUint32(b + 4, true), rate = v.getUint32(b + 16, true);
+      const x = new Float32Array(n), d = bytes.subarray(512 + off);
+      let pred = 0, idx = 0;
+      for (let i = 0; i < n; i++) {
+        const code = (d[i >> 1] >> ((i & 1) * 4)) & 15, step = IMA_STEP[idx];
+        let vd = step >> 3;
+        if (code & 4) vd += step; if (code & 2) vd += step >> 1; if (code & 1) vd += step >> 2;
+        pred = Math.max(-32768, Math.min(32767, code & 8 ? pred - vd : pred + vd));
+        idx = Math.max(0, Math.min(88, idx + IMA_IDX[code & 7]));
+        x[i] = pred / 32768;
+      }
+      out.push({ sr: Math.round(rate * 44100 / 65536), x });
+    }
+    return { name, sounds: out };
+  }
+  window.coracleSong = { capture, restore, readSong, readObject, decodeSlot };
 })();

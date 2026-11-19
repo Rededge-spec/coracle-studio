@@ -88,7 +88,7 @@ let partsView = null, partSel = null, partNotes = {}, partsBusy = false;
 const mk = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text != null) x.textContent = text; return x; };
 function refreshParts() {
   if (!studio.dev || !(studio.dev.info.skiff & 8)) { partsView = null; renderParts(); return Promise.resolve(); }
-  return serial(() => studio.songView()).then((v) => { partsView = v; renderParts(); }).catch((e) => status(e.message, true));
+  return serial(() => studio.songView()).then((v) => { partsView = v; renderParts(); if (lastState) renderTracks(lastState); }).catch((e) => status(e.message, true));
 }
 function sndName(s) {   /* a part's own sound (LIST2's two bytes), if it has one */
   if (!s || !s[0]) return "";
@@ -198,6 +198,7 @@ function render(st) {
   }
   $("playBtn").classList.toggle("go", !st.playing);
   renderTracks(st);
+  renderSlots(st);
 }
 /* each step's look and what a click turns it into: off -> on -> hold -> off (a drum lane: off -> hit -> accent -> off) */
 const LANE_LABEL = ["KICK", "SNARE", "CLAP", "HAT", "OPEN", "TOM", "RIM", "BELL"];
@@ -299,6 +300,12 @@ function renderTracks(st) {
         <div class="tnums"><label>Echo <input type="range" class="echo" min="0" max="100"></label><label>Rev <input type="range" class="rev" min="0" max="100"></label></div><div class="ptabs" aria-label="Track ${t.track} song parts"></div></div><div class="grid"></div>
       <div class="tctl"><input type="range" class="vol" min="0" max="127" aria-label="Track ${t.track} volume"><button type="button" class="mute">M</button><button type="button" class="solo tplay">▶</button><button type="button" class="clr">Clear</button></div>`;
     fillSounds(row.querySelector(".snd"), t);
+    if (t.user_slot) {   /* a SAMPLE track on a user slot: say which, and click to open it in the Sampler */
+      const sl = (st.sample_slots || [])[t.user_slot - 1], chip = mk("button", "uslot", `♪ USR${t.user_slot}${sl && sl.name ? " · " + sl.name : ""}`);
+      chip.type = "button"; chip.title = "The sample this track plays. Click to open it in the Sampler below, to trim or change.";
+      chip.onclick = () => editSlot(t.user_slot);
+      row.querySelector(".snd").after(chip);
+    }
     const lp = row.querySelector(".loop"), sp = row.querySelector(".speed"), ec = row.querySelector(".echo"), rv = row.querySelector(".rev");
     lp.value = t.loop; sp.value = t.speed.toFixed(2); ec.value = t.echo ?? 0; rv.value = t.reverb ?? 0;
     lp.onchange = () => act("loop", () => studio.setTrack(t.track, { loop: +lp.value })).then(refresh);
@@ -324,6 +331,12 @@ function renderTracks(st) {
     } else {
       grid.append(cellRow(t, n, (i) => melodicCell(steps, i), (i, next) => editCell(t, i, next, null)));
     }
+    { const pt = partsView && partsView.tracks[t.track - 1];
+      const px = pt && pt.ents.length ? (pt.cur >= 0 ? pt.ents.find((q) => q.e === pt.cur) : { rest: true, e: -1 }) : null;   /* (on a rest the FM-1 says "no part") */
+      if (px && px.rest) {
+        const withNotes = pt.ents.filter((q) => !q.rest).map((q) => q.e + 1);
+        grid.prepend(mk("p", "hint resthint", `It's on ${px.e >= 0 ? `part ${px.e + 1}, ` : ""}a rest just now${withNotes.length ? `. Parts with notes: ${withNotes.join(", ")} (the Part tabs open them)` : ""}.`));
+      } }
     const vol = row.querySelector(".vol");
     vol.value = t.volume;
     vol.onchange = () => act("vol", () => studio.setTrack(t.track, { volume: +vol.value }));
@@ -440,11 +453,40 @@ function renderPartTabs() {
     box.append(plus);
   }
 }
+/* a user slot's sample, read from the FM-1, into the Sampler's edit window */
+async function editSlot(n) {
+  const name = (lastState && lastState.sample_slots[n - 1] && lastState.sample_slots[n - 1].name) || `USR${n}`;
+  try {
+    const bytes = await act("read sample", async () => { await stopFirst(); return coracleSong.readObject(songReq, 31 + n, (d, t) => status(`Reading USR${n} from the FM-1… ${Math.round(d / t * 100)}%`)); });
+    const s = coracleSong.decodeSlot(bytes);
+    if (!s.sounds.length) throw new Error("That slot is empty");
+    const z = s.sounds[0], ctx = audio(), buf = ctx.createBuffer(1, z.x.length, z.sr);
+    buf.copyToChannel(z.x, 0);
+    loadBuffer(buf, s.name || name);
+    $("smpName").value = (s.name || name).toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, 8) || "SAMPLE";
+    $("slot").value = String(n);
+    status(`USR${n} (${s.name || name}) is in the Sampler: ${(z.x.length / z.sr).toFixed(1)} s${s.sounds.length > 1 ? `, the first of its ${s.sounds.length} sounds` : ""}. Send it back to USR${n} to replace it.`);
+    $("wave").scrollIntoView({ block: "center", behavior: "smooth" });
+  } catch (e) { status(`Couldn't open USR${n}: ${e.message}`, true); }
+}
+function renderSlots(st) {   /* the Sampler's row of the FM-1's three user slots */
+  const box = $("slotList"); if (!box) return;
+  box.textContent = "";
+  if (!st || !st.sample_slots) return;
+  box.append(mk("span", "hint", "On the FM-1:"));
+  for (const s of st.sample_slots) {
+    const b = mk("button", "uslot" + (s.empty ? " empty" : ""), `USR${s.slot} · ${s.empty ? "empty" : s.name || "?"}${!s.empty && s.of_kib ? ` · ${s.kib} of ${s.of_kib} KB` : ""}`);
+    b.type = "button"; b.disabled = s.empty;
+    b.title = s.empty ? "Nothing in this slot" : "Open it in the Sampler, to trim or change";
+    b.onclick = () => editSlot(s.slot);
+    box.append(b);
+  }
+}
 /* the sound picker: every engine's sounds, grouped */
 let soundList = null;
 function fillSounds(sel, t) {
   const cur = document.createElement("option");
-  cur.textContent = `${t.sound} (${t.engine})`; cur.value = ""; cur.selected = true;
+  cur.textContent = t.user_slot ? `USR${t.user_slot} (SAMPLE)` : `${t.sound} (${t.engine})`; cur.value = ""; cur.selected = true;
   sel.append(cur);
   const fill = (list) => {
     for (const g of list) {
@@ -481,7 +523,18 @@ setInterval(async () => {
     drawHeads();
     if (r.playing && partsView && partsView.song && ++partTick % 6 === 0) {
       const v = await studio.songView();
-      if (v && v.tracks.some((t, k) => t.cur !== partsView.tracks[k].cur)) { partsView = { ...partsView, tracks: partsView.tracks.map((t, k) => ({ ...t, cur: v.tracks[k].cur })) }; renderParts(); }
+      const moved = v ? v.tracks.filter((t, k) => t.cur !== partsView.tracks[k].cur).map((t) => t.k) : [];
+      if (moved.length) {
+        partsView = { ...partsView, tracks: partsView.tracks.map((t, k) => ({ ...t, cur: v.tracks[k].cur })) };
+        /* the grid follows: each track that moved on shows the part it's playing now */
+        for (const k of moved) {
+          const t = partsView.tracks[k], x = t.ents.find((q) => q.e === t.cur), st = lastState && lastState.tracks[k];
+          if (!st) continue;
+          if (!x || x.rest) studio.raw[k] = (studio.raw[k] || []).map(() => ({ n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 }));
+          else { const len = x.len || st.loop; studio.raw[k] = await studio.trackSteps(k, len); st.loop = len; }
+        }
+        renderTracks(lastState); renderParts();
+      }
     }
   } catch (e) { /* busy or gone: next time */ }
   headBusy = false;
