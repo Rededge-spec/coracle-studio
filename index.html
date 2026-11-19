@@ -57,6 +57,15 @@
     </div>
   </section>
 
+  <section class="card" aria-label="Song parts" id="partsCard" hidden>
+    <div class="cardhead"><span class="dot" style="background:var(--t2)"></span><h2>Song parts</h2>
+      <span class="seg" id="songMode" title="Off: each track loops the part it's on. On: each track plays its parts in turn, round and round. Once: through once, then stop."><button type="button" data-m="0">Off</button><button type="button" data-m="1">On</button><button type="button" data-m="2">Once</button></span>
+      <button type="button" id="partNotes" title="Read the notes of every part (stops the FM-1)">Show notes</button>
+      <span class="hint" id="partsHint">Each track plays its parts left to right, then starts again. Click a part to open its notes in Tracks below.</span></div>
+    <div id="parts"></div>
+    <div class="row" id="partBar" hidden></div>
+  </section>
+
   <section class="card" aria-label="Tracks">
     <div class="cardhead"><span class="dot" style="background:var(--t1)"></span><h2>Tracks</h2><span class="hint" id="trkHint">Connect the FM-1 to see its tracks.</span></div>
     <div id="tracks"></div>

@@ -76,12 +76,114 @@ function refresh() {
   refreshing = serial(async () => { lastState = await studio.state(); return lastState; })
     .then((st) => {
       render(st);
-      if (st && !soundList) serial(() => studio.allSounds()).then((l) => { soundList = l; renderTracks(lastState); }).catch(() => {});
+      if (st && !soundList) serial(() => studio.allSounds()).then((l) => { soundList = l; renderTracks(lastState); renderParts(); }).catch(() => {});
+      if (st) refreshParts();
       return st;
     }, (e) => { status(e.message, true); return null; })
     .finally(() => { refreshing = null; });
   return refreshing;
 }
+/* ---------------------------------------------------------------- song parts (studio.songView) */
+let partsView = null, partSel = null, partNotes = {}, partsBusy = false;
+const mk = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text != null) x.textContent = text; return x; };
+function refreshParts() {
+  if (!studio.dev || !(studio.dev.info.skiff & 8)) { partsView = null; renderParts(); return Promise.resolve(); }
+  return serial(() => studio.songView()).then((v) => { partsView = v; renderParts(); }).catch((e) => status(e.message, true));
+}
+function sndName(s) {   /* a part's own sound (LIST2's two bytes), if it has one */
+  if (!s || !s[0]) return "";
+  if (s[0] >= 64) return `user sound ${s[0] - 63}`;
+  const eng = studio.dev && studio.dev.info.engines[s[0] - 1], g = soundList && soundList.find((x) => x.engine === eng);
+  return (g && g.sounds[s[1]]) || eng || "";
+}
+function drawPart(cv, steps, drum, color, passes) {
+  const W = cv.width = cv.clientWidth * 2, H = cv.height = cv.clientHeight * 2, g = cv.getContext("2d");
+  if (!steps || !steps.length) return;
+  const per = W / passes, n = steps.length, sw = per / n;
+  const notes = []; steps.forEach((s, i) => { if (s.time === 0 && s.n) for (let j = 0; j < s.n; j++) notes.push([i, s.notes[j]]); });
+  const lo = Math.min(...notes.map((q) => q[1]), 127), hi = Math.max(...notes.map((q) => q[1]), 0);
+  g.fillStyle = color;
+  for (let p = 0; p < passes; p++) {
+    g.globalAlpha = p ? 0.4 : 1;
+    steps.forEach((s, i) => {
+      const x = p * per + i * sw;
+      if (drum) { if (s.time === 0 && s.hit) for (let l = 0; l < 8; l++) if (s.hit >> l & 1) g.fillRect(x, H - 4 - l * (H - 8) / 8 - (H - 8) / 8 + 2, Math.max(2, sw - 1), Math.max(2, (H - 8) / 8 - 2)); return; }
+      if (s.time === 0 && s.n) for (let j = 0; j < s.n; j++) { const y = hi > lo ? H - 6 - (s.notes[j] - lo) / (hi - lo) * (H - 12) : H / 2; g.fillRect(x, y - 2, Math.max(2, sw * 0.9), 4); }
+      else if (s.time === 1 && i && steps[i - 1]) { /* a held step: carry the line on */
+        let h = i; while (h > 0 && steps[h].time === 1) h--; const s0 = steps[h];
+        if (s0 && s0.n) { const y = hi > lo ? H - 6 - (s0.notes[0] - lo) / (hi - lo) * (H - 12) : H / 2; g.fillRect(x, y - 1, sw, 2); }
+      }
+    });
+  }
+}
+function renderParts() {
+  const box = $("parts"), v = partsView;
+  $("partsCard").hidden = !v;
+  box.textContent = "";
+  if (!v) return;
+  document.querySelectorAll("#songMode button").forEach((b) => b.classList.toggle("on", +b.dataset.m === v.song));
+  const PX = 1.6, loopOf = (k) => (lastState && lastState.tracks[k] ? lastState.tracks[k].loop : 16);
+  for (const t of v.tracks) {
+    const row = mk("div", "prow"), num = mk("span", "tnum", String(t.k + 1)), strip = mk("div", "pstrip");
+    num.style.background = `var(--t${t.k + 1})`;
+    const drum = !!(lastState && lastState.tracks[t.k] && lastState.tracks[t.k].drum);
+    const usual = t.ents.find((x) => !x.rest && x.len)?.len || loopOf(t.k);
+    if (!t.ents.length) strip.append(mk("span", "hint", "No parts: it loops what it has. + part makes that part 1."));
+    for (const x of t.ents) {
+      const len = x.rest ? usual : x.len || loopOf(t.k), sel = partSel && partSel.k === t.k && partSel.e === x.e;
+      const b = mk("button", "pblk" + (x.rest ? " rest" : "") + (t.cur === x.e ? " now" : "") + (sel ? " sel" : ""));
+      b.type = "button";
+      b.style.width = Math.max(34, Math.round(len * x.reps * PX)) + "px";
+      if (!x.rest) b.style.setProperty("--pc", `var(--t${t.k + 1})`);
+      const snd = sndName(x.snd);
+      b.append(mk("span", "plab", (x.rest ? "rest" : `P${x.pat}`) + (x.reps > 1 ? ` ×${x.reps}` : "") + (x.chain ? " ↦" : "")));
+      if (snd) b.append(mk("span", "psnd", snd));
+      if (!x.rest && partNotes[x.pat]) { const cv = mk("canvas", "pcv"); b.append(cv); requestAnimationFrame(() => drawPart(cv, partNotes[x.pat], drum, getComputedStyle(document.body).getPropertyValue(`--t${t.k + 1}`) || "#888", x.reps)); }
+      b.title = x.rest ? `Part ${x.e + 1}: silence for ${x.reps} pass${x.reps > 1 ? "es" : ""}`
+        : `Part ${x.e + 1}: pattern ${x.pat}, ${len} steps, played ${x.reps} time${x.reps > 1 ? "s" : ""}${v.uses[x.pat] > 1 ? ` (pattern ${x.pat} is used by ${v.uses[x.pat]} parts)` : ""}${snd ? `, sound ${snd}` : ""}. Click to open it below.`;
+      b.onclick = () => {
+        partSel = { k: t.k, e: x.e }; renderParts();
+        if (x.rest) return;
+        act("part", () => studio.songGo(t.k, x.e)).then(() => { heads = null; drawHeads(); return refresh(); })
+          .then(() => { const r = [...$("tracks").children].find((q) => +q.dataset.track === t.k + 1); if (r) { r.scrollIntoView({ block: "nearest", behavior: "smooth" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 900); } }).catch(() => {});
+      };
+      strip.append(b);
+    }
+    const add = mk("button", "padd", "+ part"); add.type = "button"; add.title = "Add a part at the end: a copy of the selected part (or the last one), to change";
+    add.onclick = () => partAct(() => studio.songAdd(t.k, partSel && partSel.k === t.k ? partSel.e : -1));
+    const rest = mk("button", "padd", "+ rest"); rest.type = "button"; rest.title = "Add a silent part at the end";
+    rest.onclick = () => partAct(() => studio.songAdd(t.k, -1, true));
+    row.append(num, strip, add, rest);
+    box.append(row);
+  }
+  renderPartBar();
+}
+function renderPartBar() {
+  const bar = $("partBar"), v = partsView, t = v && partSel && v.tracks[partSel.k], x = t && t.ents.find((q) => q.e === partSel.e);
+  bar.textContent = ""; bar.hidden = !x;
+  if (!x) return;
+  bar.append(mk("b", "", `Track ${partSel.k + 1}, part ${x.e + 1}: ${x.rest ? "rest" : `pattern ${x.pat}`}`));
+  if (!x.rest && v.uses[x.pat] > 1) bar.append(mk("span", "hint", `Pattern ${x.pat} is in ${v.uses[x.pat]} parts: changing its notes changes them all.`));
+  const btn = (txt, tip, fn) => { const b = mk("button", "", txt); b.type = "button"; b.title = tip; b.onclick = fn; bar.append(b); return b; };
+  bar.append(mk("span", "hint", "Plays"));
+  btn("−", "One time fewer", () => partAct(() => studio.songReps(partSel.k, x.e, x.reps - 1))).disabled = x.reps <= 1 || x.chain;
+  bar.append(mk("span", "num", `${x.reps}×`));
+  btn("+", "One time more", () => partAct(() => studio.songReps(partSel.k, x.e, x.reps + 1))).disabled = x.reps >= 16 || x.chain;
+  if (!x.rest && v.uses[x.pat] > 1) btn("Make it its own", "Give this part its own copy of the pattern, so you can change it without changing the others", () => partAct(() => studio.songOwn(partSel.k, x.e)));
+  btn("Remove", "Take this part out of the track's list", () => { if (confirm(`Remove part ${x.e + 1} from track ${partSel.k + 1}?`)) partAct(() => studio.songRemove(partSel.k, x.e)).then(() => { partSel = null; renderParts(); }); });
+}
+function partAct(fn) {
+  return act("parts", fn).then(() => { partNotes = {}; return refreshParts(); }).then(() => refresh()).catch(() => {});
+}
+document.querySelectorAll("#songMode button").forEach((b) => {
+  b.onclick = () => act("song mode", () => studio.songMode(["off", "on", "once"][+b.dataset.m])).then(refreshParts).catch(() => {});
+});
+$("partNotes").onclick = () => {
+  heads = null; drawHeads();
+  act("notes", () => studio.songNotes((i, n) => { $("partsHint").textContent = `Reading the parts… ${i} of ${n}`; }))
+    .then((m) => { partNotes = m; $("partsHint").textContent = "Each track plays its parts left to right, then starts again. Click a part to open its notes in Tracks below."; renderParts(); return refresh(); })
+    .catch(() => {});
+};
 function render(st) {
   if (!st) return;
   if (document.activeElement !== $("bpm")) $("bpm").value = st.bpm;
@@ -263,7 +365,7 @@ function drawHeads() {
     if (step != null) row.querySelectorAll(`.cell[data-i="${step}"]`).forEach((c) => c.classList.add("ph"));
   }
 }
-let headBusy = false, wasPlaying = null;
+let headBusy = false, wasPlaying = null, partTick = 0;
 setInterval(async () => {
   if (!studio.dev || headBusy || pending || document.hidden) return;
   headBusy = true;
@@ -272,6 +374,10 @@ setInterval(async () => {
     heads = r.playing ? r.steps : null;
     if (wasPlaying !== r.playing) { wasPlaying = r.playing; $("playBtn").classList.toggle("go", !r.playing); }
     drawHeads();
+    if (r.playing && partsView && partsView.song && ++partTick % 6 === 0) {
+      const v = await studio.songView();
+      if (v && v.tracks.some((t, k) => t.cur !== partsView.tracks[k].cur)) { partsView = { ...partsView, tracks: partsView.tracks.map((t, k) => ({ ...t, cur: v.tracks[k].cur })) }; renderParts(); }
+    }
   } catch (e) { /* busy or gone: next time */ }
   headBusy = false;
 }, 150);

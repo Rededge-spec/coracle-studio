@@ -161,3 +161,26 @@ label.num { font: 14px "Segoe UI", system-ui, sans-serif; color: var(--mid); }
 .kitctl .ksolo.on { background: #e6c440; color: #15161a; }
 .status { font-weight: 400; }
 .drop { background: rgba(247,246,242,.92); font: 600 32px "Segoe UI", system-ui, sans-serif; color: var(--text); }
+
+/* song parts: each track's parts in a row, widths by time so the tracks line up */
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.seg button.on { background: #4fc36b; border-color: #4fc36b; color: #0d1a10; }
+#parts { display: grid; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.prow { display: flex; align-items: center; gap: 6px; }
+.prow .tnum { flex: none; }
+.pstrip { display: flex; gap: 2px; min-width: 0; }
+.pblk { position: relative; flex: none; height: 46px; padding: 2px 4px; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  background: color-mix(in srgb, var(--pc, #ddd) 30%, #fff); border: 1px solid var(--line); border-radius: 5px; font-size: 12px; overflow: hidden; text-align: left; }
+.pblk.rest { background: repeating-linear-gradient(135deg, #f7f6f2 0 6px, #ecebe6 6px 12px); color: var(--mid); }
+.pblk.now { box-shadow: inset 0 0 0 2px #15161a; }
+.pblk.sel { outline: 2px solid #2e6cc9; outline-offset: 1px; }
+.pblk .plab { font-weight: 600; line-height: 14px; white-space: nowrap; position: relative; z-index: 1; }
+.pblk .psnd { font-size: 10px; color: var(--mid); white-space: nowrap; position: relative; z-index: 1; }
+.pblk .pcv { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 30px; }
+.padd { flex: none; padding: 4px 8px; font-size: 12px; }
+#partBar { flex-wrap: wrap; }
+#partBar .num { min-width: 24px; text-align: center; }
+.trk.flash { background: #fff6c8; transition: background .3s; }

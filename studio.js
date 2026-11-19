@@ -432,6 +432,75 @@ class Studio {
     await this.lists(6, m);
     return `Song mode ${String(mode).toLowerCase()}`;
   }
+  /* ---- the song view (app.js renderParts): each track's parts, how long each pattern is, and the pattern each part plays */
+  async songView() {
+    const d = this.need();
+    if (!(d.info.skiff & 8)) return null;
+    const L = await this.lists();
+    let lens = null;
+    if (d.info.skiff & 4) { try { lens = (await this.rq(req.pool())).pats.map((p) => p.len); } catch (e) { /* no pool: lengths unknown */ } }
+    const uses = {};
+    L.tracks.forEach((t) => t.ent.forEach((x) => { if (x.pat && x.pat !== PAT_REST) uses[x.pat] = (uses[x.pat] || 0) + 1; }));
+    return { song: L.song, uses, tracks: L.tracks.map((t, k) => {
+      const ents = [];
+      for (let e = 0; e < 16; e++) {
+        const x = t.ent[e];
+        if (!x || !x.pat) break;
+        const rest = x.pat === PAT_REST;
+        ents.push({ e, pat: x.pat, rest, reps: x.reps, chain: !!x.chain, snd: x.snd || [0, 0], len: !rest && lens ? lens[x.pat - 1] || 0 : 0 });
+      }
+      return { k, cur: t.cur, next: t.next, pat: t.pat, ents };
+    }) };
+  }
+  async stopIfPlaying() { if (this.need().info.skiff & 1) await this.rq(req.transport(2)); }
+  /* track k (0-based) onto part e, stopped, so its notes show and edits go to that part's pattern */
+  async songGo(k, e) { await this.stopIfPlaying(); await this.lists(3, k, e); this.raw[k] = null; this.changed("tracks"); return `Track ${k + 1}: part ${e + 1}`; }
+  async songReps(k, e, reps) { await this.lists(5, k, e, Math.max(1, Math.min(16, reps | 0))); return `Track ${k + 1}, part ${e + 1}: x${reps}`; }
+  /* a new part at the end: a copy of part e's pattern (its own, to vary) or a rest */
+  async songAdd(k, from, rest = false) {
+    await this.stopIfPlaying();
+    const v = await this.songView(), ents = v.tracks[k].ents, n = ents.length;
+    if (n >= 16) throw new Error("A track has 16 parts at most");
+    if (rest) { await this.lists(1, k, n, PAT_REST); await this.lists(5, k, n, 1); return `Track ${k + 1}: a rest added`; }
+    const src = ents.find((x) => x.e === from && !x.rest) || [...ents].reverse().find((x) => !x.rest);
+    if (!src) {   /* no parts yet: what the track plays now becomes part 1 */
+      if (!(this.dev.info.song2 & 1)) throw new Error("This firmware can't make new patterns from here");
+      const steps = await this.trackSteps(k, (await this.rq(req.trackParam(k, P_ID.LOOP))).value);
+      await this.lists(7, k, n); await this.lists(3, k, n); await this.writeSteps(k, steps); await this.lists(5, k, n, 1);
+      return `Track ${k + 1}: part 1 is what it was playing`;
+    }
+    await this.lists(1, k, n, src.pat); await this.lists(2, k, n); await this.lists(5, k, n, 1);
+    return `Track ${k + 1}: part ${n + 1} added, a copy of part ${src.e + 1} to change`;
+  }
+  async songOwn(k, e) { await this.stopIfPlaying(); await this.lists(2, k, e); return `Track ${k + 1}, part ${e + 1}: now its own copy`; }
+  async songRemove(k, e) {
+    await this.stopIfPlaying();
+    const ents = (await this.songView()).tracks[k].ents, n = ents.length;
+    if (n <= 1) throw new Error("That's the track's only part");
+    for (let j = e; j < n - 1; j++) {   /* the parts after it move up one */
+      const x = ents[j + 1];
+      await this.lists(1, k, j, x.pat); await this.lists(5, k, j, x.chain ? 0 : x.reps);
+    }
+    await this.lists(4, k, n - 1);
+    return `Track ${k + 1}: part ${e + 1} removed`;
+  }
+  /* every part's notes (pattern id -> steps), read by putting each track on each of its parts in turn; stopped, and each
+     track goes back to the part it was on */
+  async songNotes(onProgress = () => {}) {
+    await this.stopIfPlaying();
+    const v = await this.songView(), out = {}, todo = [];
+    v.tracks.forEach((t) => t.ents.forEach((x) => { if (!x.rest && !todo.some((q) => q.pat === x.pat)) todo.push({ k: t.k, e: x.e, pat: x.pat, len: x.len }); }));
+    let i = 0;
+    for (const q of todo) {
+      await this.lists(3, q.k, q.e);
+      const len = q.len || (await this.rq(req.trackParam(q.k, P_ID.LOOP))).value;
+      out[q.pat] = await this.trackSteps(q.k, len);
+      onProgress(++i, todo.length);
+    }
+    for (const t of v.tracks) if (t.ents.length) await this.lists(3, t.k, t.cur >= 0 && t.cur < t.ents.length ? t.cur : 0);
+    this.raw = this.raw.map(() => null); this.changed("tracks");
+    return out;
+  }
   async songState() {
     const L = await this.lists(), names = {};
     return { song: ["off", "on", "once"][L.song] || "off", tracks: L.tracks.map((t, k) => {
