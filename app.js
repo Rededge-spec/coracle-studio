@@ -288,8 +288,8 @@ async function setSolo(track) {
 }
 /* what's folded away (tracks, cards) and which drum tracks show all eight lanes: kept between visits */
 const ui = (() => { try { return JSON.parse(localStorage.getItem("coracle.ui") || "{}"); } catch (e) { return {}; } })();
-ui.folded = new Set(ui.folded || []); ui.cards = new Set(ui.cards || []); ui.allDrums = new Set(ui.allDrums || []);
-const keepUi = () => { try { localStorage.setItem("coracle.ui", JSON.stringify({ folded: [...ui.folded], cards: [...ui.cards], allDrums: [...ui.allDrums] })); } catch (e) { /* private mode */ } };
+ui.folded = new Set(ui.folded || []); ui.cards = new Set(ui.cards || []); ui.allDrums = new Set(ui.allDrums || []); ui.kitShut = new Set(ui.kitShut || []);
+const keepUi = () => { try { localStorage.setItem("coracle.ui", JSON.stringify({ folded: [...ui.folded], cards: [...ui.cards], allDrums: [...ui.allDrums], kitShut: [...ui.kitShut] })); } catch (e) { /* private mode */ } };
 function toggleSet(set, v) { set.has(v) ? set.delete(v) : set.add(v); keepUi(); }
 /* every card folds by clicking its title */
 $("foldAll").onclick = () => { for (let k = 1; k <= 6; k++) ui.folded.add(k); keepUi(); renderTracks(lastState); };
@@ -336,16 +336,24 @@ function renderTracks(st) {
       const used = LANE_LABEL.map((_, l) => steps.some((s) => drumCell(s, l).cls)), show = LANE_LABEL.map((_, l) => used[l] || l < 4 || ui.allDrums.has(t.track));
       LANE_LABEL.forEach((lab, l) => {
         const r = cellRow(t, n, (i) => drumCell(steps[i], l), (i, next) => editCell(t, i, next, l), lab);
-        if (t.kit) { r.querySelector(":scope > .lanelab")?.remove(); r.prepend(kitCtl(t, l, lab)); r.classList.add("haskit"); }
+        if (t.kit && !ui.kitShut.has(t.track)) { r.querySelector(":scope > .lanelab")?.remove(); r.prepend(kitCtl(t, l, lab)); r.classList.add("haskit"); }
         if (!show[l]) r.classList.add("spare");
         grid.append(r);
       });
+      const kbar = mk("div", "kitbar");
       if (show.some((x) => !x) || ui.allDrums.has(t.track)) {   /* (stays as chosen when the tracks are drawn again) */
-        const more = document.createElement("button");
-        more.type = "button"; more.className = "more"; more.textContent = ui.allDrums.has(t.track) ? "Fewer drums" : "More drums";
+        const more = mk("button", "more", ui.allDrums.has(t.track) ? "Fewer drums" : "More drums"); more.type = "button";
+        more.title = ui.allDrums.has(t.track) ? "Hide the drums this pattern doesn't use" : "Show all eight drums";
         more.onclick = () => { toggleSet(ui.allDrums, t.track); renderTracks(lastState); };
-        grid.append(more);
+        kbar.append(more);
       }
+      if (t.kit) {   /* each drum's level, solo and pitch: fold them away to leave just the steps */
+        const kb = mk("button", "more", ui.kitShut.has(t.track) ? "Show drum levels" : "Hide drum levels"); kb.type = "button";
+        kb.title = "Each drum's level slider, S and pitch";
+        kb.onclick = () => { toggleSet(ui.kitShut, t.track); renderTracks(lastState); };
+        kbar.append(kb);
+      }
+      if (kbar.children.length) grid.append(kbar);
     } else {
       grid.append(cellRow(t, n, (i) => melodicCell(steps, i), (i, next) => editCell(t, i, next, null)));
     }

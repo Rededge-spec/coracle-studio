@@ -216,3 +216,4 @@ button.tnum { padding: 0; min-height: 0; cursor: pointer; border: none; }
 .trk.folded .tmini { display: block; grid-column: 3; }
 .trk.folded .grid, .trk.folded .tnums, .trk.folded .ptabs, .trk.folded .uslot, .trk.folded .clr, .trk.folded .tfold { display: none !important; }
 .trk.folded .tnum { align-self: center; }
+.kitbar { display: flex; gap: 6px; }
