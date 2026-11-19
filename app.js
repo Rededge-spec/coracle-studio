@@ -537,20 +537,41 @@ function fillSounds(sel, t) {
 }
 /* the playhead: each track's step playing, asked of the FM-1 a few times a second while it plays */
 let heads = null;
-function drawHeads() {
+function drawHeads() {   /* only the tracks whose step changed (each row keeps the cells it lit) */
   for (const row of $("tracks").children) {
-    const k = +row.dataset.track - 1, step = heads && heads[k];
-    row.querySelectorAll(".cell.ph").forEach((c) => c.classList.remove("ph"));
-    if (step != null) row.querySelectorAll(`.cell[data-i="${step}"]`).forEach((c) => c.classList.add("ph"));
+    const k = +row.dataset.track - 1, step = heads ? heads[k] : null;
+    if (row._phStep === step) continue;
+    (row._ph || []).forEach((c) => c.classList.remove("ph"));
+    row._ph = step != null ? [...row.querySelectorAll(`.cell[data-i="${step}"]`)] : [];
+    row._ph.forEach((c) => c.classList.add("ph"));
+    row._phStep = step;
   }
 }
+/* The playhead runs on the PC's own clock: each answer from the FM-1 says which step each track was on (dated half the
+   time the question took to come back), and between answers the steps are worked out from the tempo and each track's
+   speed and loop. So it moves with the music instead of jumping a little late each time an answer arrives. */
+let anchors = null, rtt = 30;
+setTimeout(() => setInterval(function headLoop() {   /* every 25 ms (started once wasPlaying, below, exists) */
+  if (anchors && wasPlaying && lastState && lastState.bpm) {
+    const now = performance.now();
+    const h = anchors.map((a, k) => {
+      if (!a) return null;
+      const st = lastState.tracks[k]; if (!st) return a.s;
+      const d = 60000 / lastState.bpm / 4 / (st.speed || 1), n = st.loop || 16;
+      return (a.s + Math.max(0, Math.floor((now - a.t) / d))) % n;
+    });
+    if (!heads || h.some((v, k) => v !== heads[k])) { heads = h; drawHeads(); }
+  } else if (anchors && !wasPlaying) { anchors = null; heads = null; drawHeads(); }
+}, 25), 0);
 let headBusy = false, wasPlaying = null, partTick = 0;
 setInterval(async () => {
   if (!studio.dev || headBusy || pending || document.hidden) return;
   headBusy = true;
   try {
-    const r = await studio.playheads();
-    heads = r.playing ? r.steps : null;
+    const t0 = performance.now(), r = await studio.playheads(), t1 = performance.now();
+    rtt = rtt * 0.8 + (t1 - t0) * 0.2;
+    if (r.playing && r.steps) { const at = t1 - rtt / 2; anchors = r.steps.map((x) => (x == null ? null : { s: x, t: at })); }
+    else { anchors = null; heads = null; }
     if (wasPlaying !== r.playing) { wasPlaying = r.playing; played(!!r.playing); $("playBtn").classList.toggle("go", !r.playing); }
     drawHeads();
     if (r.playing && partsView && partsView.song && ++partTick % 6 === 0) {
@@ -570,7 +591,7 @@ setInterval(async () => {
     }
   } catch (e) { /* busy or gone: next time */ }
   headBusy = false;
-}, 150);
+}, 200);
 $("playBtn").onclick = () => act("play", () => studio.transport(1)).then(() => { wasPlaying = true; played(true); return refresh(); });
 $("stopBtn").onclick = () => act("stop", stopAll).then(refreshNow).catch(() => {});
 $("bpm").onchange = () => act("bpm", () => studio.setTempo(+$("bpm").value));
