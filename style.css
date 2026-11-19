@@ -200,3 +200,19 @@ label.num { font: 14px "Segoe UI", system-ui, sans-serif; color: var(--mid); }
 .uslot.empty { color: var(--mid); }
 .resthint { margin: 0 0 4px; }
 .top .transport { display: flex; gap: 6px; margin-left: 14px; }
+
+/* folding: cards by their title, tracks by their number (a folded track: one line with a picture of its notes) */
+h2.foldable { cursor: pointer; user-select: none; }
+h2.foldable::before { content: "▾ "; color: var(--mid); font-size: 12px; }
+section.folded h2.foldable::before { content: "▸ "; }
+section.folded > :not(.cardhead) { display: none !important; }
+section.folded .cardhead > :not(h2):not(.dot) { display: none; }
+.cardhead button.small { padding: 2px 8px; font-size: 12px; }
+button.tnum { padding: 0; min-height: 0; cursor: pointer; border: none; }
+.trk { position: relative; }
+.tfold { position: absolute; left: 2px; top: 36px; font-size: 10px; color: var(--mid); pointer-events: none; }
+.tmini { display: none; width: 100%; height: 28px; cursor: pointer; }
+.trk.folded { padding: 4px 0 4px 8px; align-items: center; }
+.trk.folded .tmini { display: block; grid-column: 3; }
+.trk.folded .grid, .trk.folded .tnums, .trk.folded .ptabs, .trk.folded .uslot, .trk.folded .clr, .trk.folded .tfold { display: none !important; }
+.trk.folded .tnum { align-self: center; }

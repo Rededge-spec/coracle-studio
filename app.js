@@ -286,6 +286,21 @@ async function setSolo(track) {
   for (const t of st.tracks) { const m = t.track !== track; if (t.muted !== m) await studio.setTrack(t.track, { muted: m }); }
   return `Solo: track ${track}`;
 }
+/* what's folded away (tracks, cards) and which drum tracks show all eight lanes: kept between visits */
+const ui = (() => { try { return JSON.parse(localStorage.getItem("coracle.ui") || "{}"); } catch (e) { return {}; } })();
+ui.folded = new Set(ui.folded || []); ui.cards = new Set(ui.cards || []); ui.allDrums = new Set(ui.allDrums || []);
+const keepUi = () => { try { localStorage.setItem("coracle.ui", JSON.stringify({ folded: [...ui.folded], cards: [...ui.cards], allDrums: [...ui.allDrums] })); } catch (e) { /* private mode */ } };
+function toggleSet(set, v) { set.has(v) ? set.delete(v) : set.add(v); keepUi(); }
+/* every card folds by clicking its title */
+$("foldAll").onclick = () => { for (let k = 1; k <= 6; k++) ui.folded.add(k); keepUi(); renderTracks(lastState); };
+$("openAll").onclick = () => { ui.folded.clear(); keepUi(); renderTracks(lastState); };
+document.querySelectorAll("section.card").forEach((sec) => {
+  const head = sec.querySelector(".cardhead h2"), id = sec.getAttribute("aria-label");
+  if (!head || !id) return;
+  head.classList.add("foldable"); head.title = "Click to fold or unfold";
+  sec.classList.toggle("folded", ui.cards.has(id));
+  head.onclick = () => { toggleSet(ui.cards, id); sec.classList.toggle("folded", ui.cards.has(id)); };
+});
 function renderTracks(st) {
   const box = $("tracks");
   box.textContent = "";
@@ -293,8 +308,8 @@ function renderTracks(st) {
   if (!st) return;
   for (const t of st.tracks) {
     const c = `var(--t${t.track})`, row = document.createElement("div"), steps = studio.raw[t.track - 1] || [];
-    row.className = "trk";
-    row.innerHTML = `<div class="tnum" style="background:${c}">${t.track}</div>
+    row.className = "trk" + (ui.folded.has(t.track) ? " folded" : "");
+    row.innerHTML = `<button type="button" class="tnum" style="background:${c}" title="Fold or unfold track ${t.track}">${t.track}</button><span class="tfold">${ui.folded.has(t.track) ? "▸" : "▾"}</span>
       <div class="tsound"><select class="snd" aria-label="Track ${t.track} sound"></select>
         <div class="tnums"><label>Loop <input type="number" class="loop" min="1" max="64"></label><label>Speed x<input type="number" class="speed" min="0.25" max="4" step="0.01"></label></div>
         <div class="tnums"><label>Echo <input type="range" class="echo" min="0" max="100"></label><label>Rev <input type="range" class="rev" min="0" max="100"></label></div><div class="ptabs" aria-label="Track ${t.track} song parts"></div></div><div class="grid"></div>
@@ -313,19 +328,22 @@ function renderTracks(st) {
     ec.onchange = () => act("echo", () => studio.setTrack(t.track, { echo: +ec.value }));
     rv.onchange = () => act("rev", () => studio.setTrack(t.track, { reverb: +rv.value }));
     row.cells = [];
+    row.querySelector(".tnum").onclick = () => { toggleSet(ui.folded, t.track); renderTracks(lastState); };
     const grid = row.querySelector(".grid"), n = Math.min(t.loop, steps.length);
+    { const mini = mk("canvas", "tmini"); mini.title = "Track " + t.track + ": click its number to unfold"; mini.onclick = () => { toggleSet(ui.folded, t.track); renderTracks(lastState); };
+      grid.before(mini); if (ui.folded.has(t.track)) requestAnimationFrame(() => drawPart(mini, steps.slice(0, n), t.drum, getComputedStyle(document.body).getPropertyValue(`--t${t.track}`) || "#888", 1)); }
     if (t.drum) {
-      const used = LANE_LABEL.map((_, l) => steps.some((s) => drumCell(s, l).cls)), show = LANE_LABEL.map((_, l) => used[l] || l < 4 || row.dataset.all);
+      const used = LANE_LABEL.map((_, l) => steps.some((s) => drumCell(s, l).cls)), show = LANE_LABEL.map((_, l) => used[l] || l < 4 || ui.allDrums.has(t.track));
       LANE_LABEL.forEach((lab, l) => {
         const r = cellRow(t, n, (i) => drumCell(steps[i], l), (i, next) => editCell(t, i, next, l), lab);
         if (t.kit) { r.querySelector(":scope > .lanelab")?.remove(); r.prepend(kitCtl(t, l, lab)); r.classList.add("haskit"); }
         if (!show[l]) r.classList.add("spare");
         grid.append(r);
       });
-      if (show.some((x) => !x)) {
+      if (show.some((x) => !x) || ui.allDrums.has(t.track)) {   /* (stays as chosen when the tracks are drawn again) */
         const more = document.createElement("button");
-        more.type = "button"; more.className = "more"; more.textContent = "More drums";
-        more.onclick = () => { grid.querySelectorAll(".spare").forEach((x) => x.classList.remove("spare")); more.remove(); };
+        more.type = "button"; more.className = "more"; more.textContent = ui.allDrums.has(t.track) ? "Fewer drums" : "More drums";
+        more.onclick = () => { toggleSet(ui.allDrums, t.track); renderTracks(lastState); };
         grid.append(more);
       }
     } else {
