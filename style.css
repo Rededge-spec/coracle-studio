@@ -199,3 +199,4 @@ label.num { font: 14px "Segoe UI", system-ui, sans-serif; color: var(--mid); }
 .tsound .uslot { align-self: flex-start; }
 .uslot.empty { color: var(--mid); }
 .resthint { margin: 0 0 4px; }
+.top .transport { display: flex; gap: 6px; margin-left: 14px; }

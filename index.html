@@ -26,6 +26,7 @@
       </g>
     </svg>
     <div><h1>Coracle Studio</h1><div class="strip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="transport"><button type="button" class="big go" id="playBtn" title="Play (Space)">Play</button><button type="button" class="big" id="stopBtn" title="Stop (Space)">Stop</button></div>
   </div>
   <div class="conn">
     <span class="chip" id="chip"><i></i><span id="chipTxt">FM-1 not connected</span></span>
@@ -37,8 +38,6 @@
   <section class="card song" aria-label="Song">
     <div class="cardhead"><span class="dot" style="background:var(--t3)"></span><h2>Song</h2></div>
     <div class="row">
-      <button type="button" class="big go" id="playBtn">Play</button>
-      <button type="button" class="big" id="stopBtn">Stop</button>
       <label class="num">Tempo <input type="number" id="bpm" min="40" max="240" value="120"> BPM</label>
       <label class="num">Swing <input type="number" id="swing" min="0" max="100" value="0"> %</label>
       <button type="button" id="refreshBtn" title="Read the FM-1 again">Refresh</button>
