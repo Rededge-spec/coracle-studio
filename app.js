@@ -288,7 +288,7 @@ async function setSolo(track) {
 function renderTracks(st) {
   const box = $("tracks");
   box.textContent = "";
-  $("trkHint").textContent = st ? "Click a step: off, on, held (drums: off, hit, accent). M mutes a track, ▶ plays it on its own. Part 1, 2, 3 … are its song parts; + adds one. Space plays and stops." : "Connect the FM-1 to see its tracks.";
+  $("trkHint").textContent = st ? "Click a step: off, on, held (drums: off, hit, accent). M mutes a track, ▶ plays it on its own. Part 1, 2, 3 … are its song parts; + adds one. Space plays and stops; ← → jump to the previous or next part (Shift+←: the start)." : "Connect the FM-1 to see its tracks.";
   if (!st) return;
   for (const t of st.tracks) {
     const c = `var(--t${t.track})`, row = document.createElement("div"), steps = studio.raw[t.track - 1] || [];
@@ -340,17 +340,76 @@ function renderTracks(st) {
   drawHeads();
   renderPartTabs();
 }
+/* ---- where the song is (song mode), and ← → to jump between part starts ----
+   The FM-1 can't start halfway through a part, so a jump lands on the nearest part start; a track in the middle of
+   a longer part at that moment starts that part from its beginning. */
+let songT = 0, songT0 = null;   /* seconds into the song; songT0: when it last started playing from songT */
+const nowT = () => (songT0 != null ? songT + (performance.now() - songT0) / 1000 : songT);
+function played(on) {           /* the FM-1 started or stopped (from here or its own buttons) */
+  if (on && songT0 == null) songT0 = performance.now();
+  if (!on && songT0 != null) { songT = nowT(); songT0 = null; }
+}
+function partClock(k) {         /* track k's parts as times: [{e, s, d}], and the whole list's length */
+  const t = partsView && partsView.tracks[k], st = lastState && lastState.tracks[k];
+  if (!t || !t.ents.length || !st || !lastState.bpm) return null;
+  const step = 60 / lastState.bpm / 4 / (st.speed || 1), usual = t.ents.find((x) => !x.rest && x.len)?.len || st.loop || 16;
+  let s = 0; const parts = t.ents.map((x) => { const d = (x.rest ? usual : x.len || st.loop || 16) * x.reps * step, p = { e: x.e, s, d }; s += d; return p; });
+  return { parts, total: s };
+}
+function partStarts(limit) {    /* every part start of every track up to limit seconds, sorted */
+  const out = new Set([0]);
+  for (let k = 0; k < 6; k++) {
+    const c = partClock(k); if (!c || !c.total) continue;
+    for (let base = 0; base < limit; base += c.total) for (const p of c.parts) if (base + p.s < limit) out.add(Math.round((base + p.s) * 1000) / 1000);
+    if (partsView.song === 2) break;   /* (once: no going round) */
+  }
+  return [...out].sort((a, b) => a - b);
+}
+async function seekTo(T) {
+  const was = !!wasPlaying;
+  if (was) { await studio.transport(2); played(false); }
+  for (let k = 0; k < 6; k++) {
+    const c = partClock(k); if (!c || !c.total) continue;
+    const local = partsView.song === 2 ? Math.min(T, c.total - 1e-6) : T % c.total;
+    const p = c.parts.find((q) => local >= q.s - 1e-6 && local < q.s + q.d - 1e-6) || c.parts[0];
+    await studio.lists(3, k, p.e);
+  }
+  songT = T; songT0 = null; heads = null; drawHeads();
+  if (was) { await studio.transport(1); played(true); wasPlaying = true; }
+  return `Song at ${songClock(T)}`;
+}
+const songClock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+function jump(dir, toStart) {
+  if (!studio.dev) return;
+  if (!partsView || !partsView.song) { status("Song mode is off: ← → jump between song parts when it's on."); return; }
+  const T = nowT(), starts = partStarts(Math.max(T, 0) + 3600);
+  let to = 0;
+  if (!toStart) {
+    if (dir < 0) { const back = starts.filter((s) => s < T - 1.5); to = back.length ? back[back.length - 1] : 0; }   /* (1.5 s in: back to this part's start first? no: the one before) */
+    else to = starts.find((s) => s > T + 0.05) ?? T;
+  }
+  act("jump", () => seekTo(to)).then(() => { showPos(); refreshParts(); }).catch(() => {});
+}
+function showPos() { const p = $("songPos"); if (p) p.textContent = partsView && partsView.song && studio.dev ? `Song ${songClock(nowT())}` : ""; }
+setInterval(showPos, 250);
+addEventListener("keydown", (e) => {
+  if ((e.code !== "ArrowLeft" && e.code !== "ArrowRight") || e.ctrlKey || e.altKey || e.metaKey) return;
+  const el = e.target, tag = el && el.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT" || tag === "INPUT" || el.isContentEditable || el.closest?.("#wave")) return;
+  e.preventDefault();
+  jump(e.code === "ArrowLeft" ? -1 : 1, e.code === "ArrowLeft" && e.shiftKey);
+});
 /* ▶ on a track: it plays on its own (the others muted for now); ▶ again (■), Stop or Space stops and brings them back */
 async function trackPlay(track) {
   const on = !!solo && solo.track === track;
   if (on && wasPlaying) { await studio.transport(2); wasPlaying = false; await setSolo(track); return `Stopped; every track back`; }
   if (!on) await setSolo(track);
-  await studio.transport(1); wasPlaying = true;
+  await studio.transport(1); wasPlaying = true; played(true);
   return `Track ${track} playing on its own (■ or Space stops)`;
 }
 async function stopAll() {
   heads = null; drawHeads();
-  await studio.transport(2); wasPlaying = false;
+  await studio.transport(2); wasPlaying = false; played(false);
   if (solo) await setSolo(solo.track);   /* a track playing on its own: the others back */
   return "Stopped";
 }
@@ -418,7 +477,7 @@ setInterval(async () => {
   try {
     const r = await studio.playheads();
     heads = r.playing ? r.steps : null;
-    if (wasPlaying !== r.playing) { wasPlaying = r.playing; $("playBtn").classList.toggle("go", !r.playing); }
+    if (wasPlaying !== r.playing) { wasPlaying = r.playing; played(!!r.playing); $("playBtn").classList.toggle("go", !r.playing); }
     drawHeads();
     if (r.playing && partsView && partsView.song && ++partTick % 6 === 0) {
       const v = await studio.songView();
@@ -427,7 +486,7 @@ setInterval(async () => {
   } catch (e) { /* busy or gone: next time */ }
   headBusy = false;
 }, 150);
-$("playBtn").onclick = () => act("play", () => studio.transport(1)).then(refresh);
+$("playBtn").onclick = () => act("play", () => studio.transport(1)).then(() => { wasPlaying = true; played(true); return refresh(); });
 $("stopBtn").onclick = () => act("stop", stopAll).then(refreshNow).catch(() => {});
 $("bpm").onchange = () => act("bpm", () => studio.setTempo(+$("bpm").value));
 $("swing").onchange = () => act("swing", () => studio.setSwing(+$("swing").value));
@@ -774,7 +833,7 @@ addEventListener("keydown", (e) => {
     act("space", async () => {
       const r = await studio.playheads();
       if (r.playing) { await stopAll(); $("playBtn").classList.add("go"); return "Stopped"; }
-      await studio.transport(1); wasPlaying = true; $("playBtn").classList.remove("go"); return "Playing";
+      await studio.transport(1); wasPlaying = true; played(true); $("playBtn").classList.remove("go"); return "Playing";
     }).then(() => (hadSolo ? refreshNow() : null)).catch(() => {});   /* (a full read only when a track's ▶ was undone) */
   } else if (studio.clip) $("playSmp").click();   /* no FM-1: the sampler's sound */
 });
